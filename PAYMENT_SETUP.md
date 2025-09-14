@@ -4,7 +4,7 @@ This guide explains how to set up the payment system for the freemium model.
 
 ## Overview
 
-The extension now includes a freemium model where users get 100 free translations, then must subscribe for $0.99/month for unlimited access.
+The extension now includes a freemium model where users get 50 free translations, then must subscribe for $0.99/month for unlimited access.
 
 ## Current Implementation
 
@@ -127,7 +127,7 @@ CREATE TABLE subscriptions (
 
 ## Cost Structure
 
-- **Free Tier**: 100 translations per user
+- **Free Tier**: 50 translations per user
 - **Premium Tier**: $0.99/month for unlimited translations
 - **Stripe Fees**: ~2.9% + $0.30 per transaction
 

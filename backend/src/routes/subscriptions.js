@@ -100,8 +100,8 @@ router.get('/status/:userId', async (req, res) => {
         status: 'inactive',
         translationCount: 0,
         hasActiveSubscription: false,
-        canTranslate: true, // First 100 are free
-        remainingFreeTranslations: 100
+        canTranslate: true, // First 50 are free
+        remainingFreeTranslations: 50
       });
     }
 
@@ -132,8 +132,8 @@ router.get('/status/:userId', async (req, res) => {
     }
 
     const translationCount = userSubscription.translation_count || 0;
-    const canTranslate = hasActiveSubscription || translationCount < 100;
-    const remainingFreeTranslations = Math.max(0, 100 - translationCount);
+    const canTranslate = hasActiveSubscription || translationCount < 50;
+    const remainingFreeTranslations = Math.max(0, 50 - translationCount);
 
     res.json({
       userId: userId,
@@ -219,12 +219,12 @@ router.post('/track-usage', async (req, res) => {
     const hasActiveSubscription = userSubscription?.status === 'active';
     const translationCount = userSubscription?.translation_count || 0;
     
-    if (!hasActiveSubscription && translationCount >= 100) {
+    if (!hasActiveSubscription && translationCount >= 50) {
       return res.status(403).json({ 
         error: 'Translation limit reached', 
         message: 'Please subscribe to continue translating',
         translationCount: translationCount,
-        limit: 100
+        limit: 50
       });
     }
 
@@ -235,7 +235,7 @@ router.post('/track-usage', async (req, res) => {
     // Get updated stats
     const updatedUser = await SubscriptionModel.getUserSubscription(userId);
     const remainingFreeTranslations = hasActiveSubscription ? 
-      null : Math.max(0, 100 - (updatedUser.translation_count || 0));
+      null : Math.max(0, 50 - (updatedUser.translation_count || 0));
 
     res.json({
       success: true,
@@ -271,13 +271,13 @@ router.get('/usage/:userId', async (req, res) => {
         totalTranslations: 0,
         last30Days: 0,
         hasActiveSubscription: false,
-        remainingFreeTranslations: 100
+        remainingFreeTranslations: 50
       });
     }
 
     const hasActiveSubscription = userSubscription.status === 'active';
     const remainingFreeTranslations = hasActiveSubscription ? 
-      null : Math.max(0, 100 - (userSubscription.translation_count || 0));
+      null : Math.max(0, 50 - (userSubscription.translation_count || 0));
 
     res.json({
       userId: userId,
