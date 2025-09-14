@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Subtitle Translation Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .subtitle {
+      background: #f0f0f0;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 8px;
+      border-left: 4px solid #4285f4;
+    }
+    .subtitle h3 {
+      margin-top: 0;
+      color: #4285f4;
+    }
+    .foreign-text {
+      font-size: 18px;
+      margin: 10px 0;
+      padding: 10px;
+      background: #fff;
+      border-radius: 4px;
+    }
+    .instructions {
+      background: #e3f2fd;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Subtitle Translation Test Page</h1>
+  
+  <div class="instructions">
+    <h3>How to Test:</h3>
+    <ol>
+      <li>Make sure your extension is loaded and configured with your OpenAI API key</li>
+      <li>Enable auto-translate in the extension popup</li>
+      <li>Refresh this page</li>
+      <li>Look for translation overlays appearing above the foreign text below</li>
+    </ol>
+  </div>
+
+  <div class="subtitle">
+    <h3>Spanish Subtitles</h3>
+    <div class="foreign-text">Hola, ¿cómo estás? Bienvenido a nuestra reunión.</div>
+    <div class="foreign-text">El proyecto está progresando muy bien.</div>
+  </div>
+
+  <div class="subtitle">
+    <h3>French Subtitles</h3>
+    <div class="foreign-text">Bonjour, comment allez-vous? Ravi de vous rencontrer.</div>
+    <div class="foreign-text">La présentation commence dans cinq minutes.</div>
+  </div>
+
+  <div class="subtitle">
+    <h3>German Subtitles</h3>
+    <div class="foreign-text">Guten Tag, wie geht es Ihnen? Schön Sie kennenzulernen.</div>
+    <div class="foreign-text">Das Meeting beginnt in zehn Minuten.</div>
+  </div>
+
+  <div class="subtitle">
+    <h3>Italian Subtitles</h3>
+    <div class="foreign-text">Ciao, come stai? Piacere di conoscerti.</div>
+    <div class="foreign-text">La riunione inizia tra quindici minuti.</div>
+  </div>
+
+  <div class="subtitle">
+    <h3>Japanese Subtitles</h3>
+    <div class="foreign-text">こんにちは、お元気ですか？お会いできて嬉しいです。</div>
+    <div class="foreign-text">会議は30分後に始まります。</div>
+  </div>
+
+  <div class="subtitle">
+    <h3>Chinese Subtitles</h3>
+    <div class="foreign-text">你好，你好吗？很高兴见到你。</div>
+    <div class="foreign-text">会议将在二十分钟后开始。</div>
+  </div>
+
+  <div class="instructions">
+    <h3>Expected Behavior:</h3>
+    <ul>
+      <li>Black translation overlays should appear above each foreign text</li>
+      <li>Overlays should show both original and translated text</li>
+      <li>Overlays should auto-dismiss after 5 seconds</li>
+      <li>Check browser console for any error messages</li>
+    </ul>
+  </div>
+</body>
+</html>

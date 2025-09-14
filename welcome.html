@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Welcome to Call Subtitle Translator</title>
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self'; object-src 'none';">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      line-height: 1.6;
+      color: #333;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .header h1 {
+      color: #4285f4;
+      margin-bottom: 10px;
+    }
+    .step {
+      background: #f8f9fa;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      border-left: 4px solid #4285f4;
+    }
+    .step h3 {
+      margin-top: 0;
+      color: #4285f4;
+    }
+    .code {
+      background: #e9ecef;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      margin: 10px 0;
+    }
+    .platforms {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin: 30px 0;
+    }
+    .platform {
+      text-align: center;
+      padding: 20px;
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+    }
+    .platform h4 {
+      margin-top: 0;
+      color: #495057;
+    }
+    .cta {
+      text-align: center;
+      margin: 40px 0;
+    }
+    .cta button {
+      background: #4285f4;
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .cta button:hover {
+      background: #3367d6;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎯 Call Subtitle Translator</h1>
+    <p>Translate call subtitles to English in real-time using AI</p>
+  </div>
+
+  <div class="step">
+    <h3>🚀 Getting Started</h3>
+    <p>This extension automatically detects and translates subtitles during video calls, making it easier to understand conversations in different languages.</p>
+  </div>
+
+  <div class="step">
+    <h3>⚙️ Setup Required</h3>
+    <p>To use this extension, you'll need to:</p>
+    <ol>
+      <li><strong>Get an OpenAI API Key:</strong> Visit <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a> to create an account and get your API key</li>
+      <li><strong>Configure the Extension:</strong> Click the extension icon and enter your API key</li>
+      <li><strong>Enable Auto-translate:</strong> Toggle the auto-translate feature on</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <h3>💡 How It Works</h3>
+    <p>The extension monitors video call platforms for subtitle text and automatically translates non-English content to English. Translations appear as overlays above the original text.</p>
+  </div>
+
+  <div class="platforms">
+    <div class="platform">
+      <h4>📹 Google Meet</h4>
+      <p>Automatic subtitle detection and translation</p>
+    </div>
+    <div class="platform">
+      <h4>🔊 Zoom</h4>
+      <p>Real-time subtitle translation</p>
+    </div>
+    <div class="platform">
+      <h4>💼 Microsoft Teams</h4>
+      <p>Meeting subtitle support</p>
+    </div>
+    <div class="platform">
+      <h4>🌐 Other Platforms</h4>
+      <p>Generic subtitle detection</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <h3>🔒 Privacy & Security</h3>
+    <p>Your OpenAI API key is stored locally in your browser and is only used to make translation requests. No personal data is collected or stored by this extension.</p>
+  </div>
+
+  <div class="cta">
+    <button>Open Extension Settings</button>
+  </div>
+
+  <div class="step">
+    <h3>📞 Support</h3>
+    <p>If you encounter any issues or have questions, please check the extension popup for error messages or contact support through the extension's GitHub repository.</p>
+  </div>
+
+  <script src="welcome.js"></script>
+</body>
+</html>
