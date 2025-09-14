@@ -7,7 +7,7 @@ class PaymentManager {
     this.elements = null;
     this.cardElement = null;
     this.isInitialized = false;
-    this.apiBaseUrl = 'YOUR_CLOUD_RUN_URL'; // Replace with your actual Cloud Run URL
+    this.apiBaseUrl = 'https://chrome-extension-translate-backend-ce42z5mupq-uc.a.run.app'; // Your actual Cloud Run URL
     this.userId = null;
     
     // Initialize Stripe and user ID
