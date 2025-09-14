@@ -24,7 +24,7 @@ class PaymentManager {
       
       // Initialize Stripe with your publishable key
       // Replace 'pk_test_your_key_here' with your actual Stripe publishable key
-      this.stripe = Stripe('pk_test_your_key_here');
+      this.stripe = Stripe('pk_live_51S7OwrBICWKfko2pZ8DAMDCLGlO2ho7pMd8ILiGQBeHj51d5rwKSdqBWbnppLFDWTedVlokcwBmOYfoooGAjhVuE008CXtyTwc');
       
       // Create card element
       this.elements = this.stripe.elements();
