@@ -1,3 +1,41 @@
+/**
+ * Content scripts run in the page; messaging the service worker can fail briefly after
+ * reload or if the worker was sleeping. Retries fix "Receiving end does not exist".
+ */
+async function sendMessageToBackground(payload) {
+  const backoffMs = [0, 80, 200, 500];
+  let lastError;
+  for (let i = 0; i < backoffMs.length; i++) {
+    if (backoffMs[i] > 0) {
+      await new Promise((r) => setTimeout(r, backoffMs[i]));
+    }
+    try {
+      const result = await chrome.runtime.sendMessage(payload);
+      if (chrome.runtime.lastError) {
+        throw new Error(chrome.runtime.lastError.message);
+      }
+      return result;
+    } catch (e) {
+      lastError = e;
+      const msg = e && e.message ? e.message : String(e);
+      if (msg.includes('Extension context invalidated')) {
+        console.warn(
+          'SubtitleTranslator: Extension was updated — refresh this tab to keep translating.'
+        );
+        throw e;
+      }
+      const transient =
+        msg.includes('Receiving end does not exist') ||
+        msg.includes('message port closed') ||
+        msg.includes('Could not establish connection');
+      if (!transient || i === backoffMs.length - 1) {
+        throw e;
+      }
+    }
+  }
+  throw lastError;
+}
+
 class SubtitleTranslator {
   constructor() {
     this.isEnabled = false;
@@ -33,7 +71,6 @@ class SubtitleTranslator {
     } else {
       console.log('SubtitleTranslator: Extension not enabled or translation limit reached, checking why...');
       console.log('SubtitleTranslator: Settings:', this.settings);
-      console.log('SubtitleTranslator: API Key present:', !!this.settings.apiKey);
       console.log('SubtitleTranslator: Auto Translate:', this.settings.autoTranslate);
       console.log('SubtitleTranslator: Can Translate:', this.canTranslate);
     }
@@ -148,22 +185,16 @@ class SubtitleTranslator {
   }
   
   async loadSettings() {
-    // Hardcoded API key for immediate use
+    const result = await chrome.storage.sync.get(['targetLang', 'autoTranslate']);
     this.settings = {
-      apiKey: 'YOUR_OPENAI_API_KEY_HERE', // Replace with your actual API key
-      targetLang: 'en',
-      autoTranslate: false
+      targetLang: result.targetLang || 'en',
+      autoTranslate: result.autoTranslate ?? false
     };
-    
-    this.isEnabled = this.settings.apiKey && this.settings.autoTranslate;
-    console.log('SubtitleTranslator: Using hardcoded settings:', this.settings);
+    this.isEnabled = this.settings.autoTranslate;
+    console.log('SubtitleTranslator: Loaded settings (sync):', this.settings);
     console.log('SubtitleTranslator: Is enabled:', this.isEnabled);
-    
-    // Resolve immediately since we're not waiting for storage
-    return Promise.resolve();
   }
   
-  // Settings are now hardcoded, no need for updates
   updateSettings(newSettings) {
     console.log('SubtitleTranslator: Updating settings:', newSettings);
     
@@ -176,9 +207,7 @@ class SubtitleTranslator {
     if (newSettings.autoTranslate !== undefined) {
       this.settings.autoTranslate = newSettings.autoTranslate;
       console.log('SubtitleTranslator: Updated auto-translate to:', newSettings.autoTranslate);
-      
-      // Update the enabled state based on auto-translate setting
-      this.isEnabled = this.settings.apiKey && this.settings.autoTranslate;
+      this.isEnabled = this.settings.autoTranslate;
       
       if (this.isEnabled && this.canTranslate) {
         this.startObserving();
@@ -533,8 +562,8 @@ class SubtitleTranslator {
     // Skip text that looks like CSS classes or IDs
     if (trimmedText.startsWith('.') || trimmedText.startsWith('#')) return false;
     
-    // Skip text that looks like JavaScript variables or functions
-    if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(trimmedText)) return false;
+    // Skip camelCase tokens typical of code/minified IDs (fooBar), not spoken single words (Hola, Yes)
+    if (/[a-z][A-Z]/.test(trimmedText)) return false;
     
     // Skip text that's just punctuation
     if (/^[\s\.,!?;:'"()\-_]+$/.test(trimmedText)) return false;
@@ -821,11 +850,7 @@ class SubtitleTranslator {
   }
   
   async translateText(text) {
-    if (!this.settings.apiKey) {
-      console.error('SubtitleTranslator: No API key configured');
-      return null;
-    }
-    
+    // Translation is performed by the backend (OpenAI key stays server-side).
     // Add to queue for rate limiting
     return new Promise((resolve) => {
       this.translationQueue.push({ text, resolve });
@@ -851,57 +876,68 @@ class SubtitleTranslator {
       }
       
       this.lastTranslationTime = now;
-      
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.settings.apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a subtitle translator. Translate the following text to English. The text may be in any language. Return only the translated text, nothing else.`
-            },
-            {
-              role: 'user',
-              content: text
-            }
-          ],
-          max_tokens: 100,
-          temperature: 0.3
-        })
+
+      // Call API from the service worker so requests are not subject to the page origin's CORS
+      // (fetch from meet.google.com would be blocked without Allow-Origin for Meet).
+      const apiResult = await sendMessageToBackground({
+        action: 'translateViaBackend',
+        text,
+        targetLang: this.settings.targetLang
       });
-      
-      if (!response.ok) {
-        if (response.status === 429) {
-          console.warn('SubtitleTranslator: Rate limit hit, increasing delay');
-          this.lastTranslationTime = Date.now() + 5000; // Add 5 second penalty
+
+      if (!apiResult) {
+        throw new Error('No response from extension background');
+      }
+      if (apiResult.fetchError) {
+        throw new Error(apiResult.message || 'Network error');
+      }
+      if (!apiResult.ok) {
+        const errorData = apiResult.data || {};
+        if (apiResult.status === 403 && errorData.needsSubscription) {
+          console.warn('SubtitleTranslator: Translation limit reached');
+          this.canTranslate = false;
+          throw new Error('Translation limit reached. Please subscribe for unlimited translations.');
         }
-        throw new Error(`API request failed: ${response.status}`);
+        if (apiResult.status === 429) {
+          console.warn('SubtitleTranslator: Rate limit hit, increasing delay');
+          this.lastTranslationTime = Date.now() + 5000;
+        }
+        if (apiResult.status === 404) {
+          throw new Error(
+            'Backend returned 404 — set EXTENSION_BACKEND_BASE_URL in config.js to your live Cloud Run URL (gcloud run services describe …) and redeploy the backend if needed.'
+          );
+        }
+        const detail =
+          errorData.message ||
+          errorData.error ||
+          (errorData.detail ? String(errorData.detail).slice(0, 120) : '') ||
+          'Unknown error';
+        throw new Error(`API request failed: ${apiResult.status} - ${detail}`);
+      }
+
+      const data = apiResult.data || {};
+      const translatedText = data.translatedText;
+      if (translatedText == null || translatedText === '') {
+        console.warn('SubtitleTranslator: API returned no translatedText', data);
+        return null;
       }
       
-      const data = await response.json();
-      const translatedText = data.choices[0]?.message?.content?.trim() || null;
-      
-      // If translation was successful, increment the usage counter
-      if (translatedText) {
-        try {
-          const result = await chrome.runtime.sendMessage({ action: 'incrementTranslationCount' });
-          if (result.success) {
-            this.canTranslate = result.canTranslate;
-            console.log('SubtitleTranslator: Translation count updated:', result.count, 'canTranslate:', result.canTranslate);
-            
-            // If limit reached, stop observing
-            if (!this.canTranslate) {
-              this.stopObserving();
-              this.showLimitReachedMessage();
-            }
-          }
-        } catch (error) {
-          console.error('SubtitleTranslator: Error updating translation count:', error);
+      // Update usage statistics in storage if provided
+      if (data.usage) {
+        await chrome.storage.sync.set({
+          translationCount: data.usage.translationCount,
+          hasActiveSubscription: data.usage.hasActiveSubscription,
+          remainingFreeTranslations: data.usage.remainingFreeTranslations
+        });
+        
+        // Update canTranslate status
+        this.canTranslate = data.usage.hasActiveSubscription || (data.usage.remainingFreeTranslations > 0);
+        console.log('SubtitleTranslator: Usage updated:', data.usage);
+        
+        // If limit reached, stop observing
+        if (!this.canTranslate) {
+          this.stopObserving();
+          this.showLimitReachedMessage();
         }
       }
       
@@ -914,26 +950,26 @@ class SubtitleTranslator {
   
   async processQueue() {
     if (this.isProcessingQueue || this.translationQueue.length === 0) return;
-    
+
     this.isProcessingQueue = true;
-    
-    while (this.translationQueue.length > 0) {
-      const { text, resolve } = this.translationQueue.shift();
-      
-      // Wait for rate limit
-      const now = Date.now();
-      const timeSinceLastRequest = now - this.lastTranslationTime;
-      const minInterval = 2000;
-      
-      if (timeSinceLastRequest < minInterval) {
-        await new Promise(resolve => setTimeout(resolve, minInterval - timeSinceLastRequest));
+    try {
+      while (this.translationQueue.length > 0) {
+        const { text, resolve } = this.translationQueue.shift();
+
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastTranslationTime;
+        const minInterval = 2000;
+
+        if (timeSinceLastRequest < minInterval) {
+          await new Promise((r) => setTimeout(r, minInterval - timeSinceLastRequest));
+        }
+
+        const result = await this.performTranslation(text);
+        resolve(result);
       }
-      
-      const result = await this.performTranslation(text);
-      resolve(result);
+    } finally {
+      this.isProcessingQueue = false;
     }
-    
-    this.isProcessingQueue = false;
   }
   
   displayTranslation(originalElement, originalText, translatedText) {

@@ -9,7 +9,6 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://api.openai.com/*",
     "https://*.run.app/*"
   ],
   "content_scripts": [

@@ -1,5 +1,9 @@
 // Background service worker for the Call Subtitle Translator extension
 
+importScripts('config.js');
+
+const TRANSLATE_API_URL = `${EXTENSION_BACKEND_BASE_URL.replace(/\/$/, '')}/api/translate`;
+
 // Handle extension installation
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
@@ -23,7 +27,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'getSettings') {
-    chrome.storage.sync.get(['apiKey', 'targetLang', 'autoTranslate', 'translationCount', 'subscriptionStatus', 'subscriptionExpiry'], (result) => {
+    chrome.storage.sync.get(['targetLang', 'autoTranslate', 'translationCount', 'subscriptionStatus', 'subscriptionExpiry'], (result) => {
       sendResponse(result);
     });
     return true; // Keep message channel open for async response
@@ -49,7 +53,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.action === 'translateViaBackend') {
+    translateViaBackend(message)
+      .then((result) => sendResponse(result))
+      .catch((err) =>
+        sendResponse({ ok: false, fetchError: true, message: err.message || String(err) })
+      );
+    return true;
+  }
 });
+
+async function translateViaBackend(message) {
+  const result = await chrome.storage.local.get(['userId']);
+  let userId = result.userId || 'user_' + Math.random().toString(36).substr(2, 16);
+  if (!result.userId) {
+    await chrome.storage.local.set({ userId });
+  }
+
+  const response = await fetch(TRANSLATE_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: message.text,
+      userId,
+      sourceLang: 'auto',
+      targetLang: message.targetLang || 'en'
+    })
+  });
+
+  const raw = await response.text();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = {
+      error: 'Non-JSON response',
+      detail: raw.slice(0, 300)
+    };
+  }
+  return { ok: response.ok, status: response.status, data };
+}
 
 // Function to increment translation count
 async function incrementTranslationCount(tabId) {

@@ -6,6 +6,7 @@ require('dotenv').config();
 
 const subscriptionRoutes = require('./routes/subscriptions');
 const webhookRoutes = require('./routes/webhooks');
+const translateRoutes = require('./routes/translate');
 const { initializeDatabase } = require('./models/database');
 
 const app = express();
@@ -58,6 +59,7 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/translate', translateRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

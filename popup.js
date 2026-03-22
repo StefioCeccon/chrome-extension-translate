@@ -43,11 +43,11 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
   usageCount.textContent = count;
   
   // Update progress bar
-  const percentage = Math.min((count / 100) * 100, 100);
+  const percentage = Math.min((count / 50) * 100, 100);
   progressFill.style.width = percentage + '%';
   
   // Show/hide upgrade button based on usage and subscription status
-  if (count >= 100 && !isSubscribed) {
+  if (count >= 50 && !isSubscribed) {
     upgradeButton.style.display = 'block';
     subscriptionInfo.innerHTML = '<strong>Free limit reached!</strong> Upgrade to continue translating.';
   } else if (isSubscribed) {
@@ -59,12 +59,12 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
     subscriptionStatus.style.display = 'block';
   } else {
     upgradeButton.style.display = 'none';
-    const remaining = Math.max(0, 100 - count);
+    const remaining = Math.max(0, 50 - count);
     subscriptionInfo.innerHTML = `<strong>${remaining} free messages remaining</strong>`;
   }
   
   // Change progress bar color based on usage
-  if (count >= 90) {
+  if (count >= 45) {
     progressFill.style.backgroundColor = '#dc3545'; // Red when close to limit
   } else if (count >= 70) {
     progressFill.style.backgroundColor = '#ffc107'; // Yellow when getting close
@@ -123,28 +123,6 @@ async function handleUpgrade() {
     showStatus('Upgrade failed: ' + error.message, 'error');
     upgradeButton.textContent = 'Upgrade to Premium - $0.99/month';
     upgradeButton.disabled = false;
-  }
-}
-
-async function testConnection() {
-  showStatus('Testing connection...', 'success');
-  
-  try {
-    const response = await fetch('https://api.openai.com/v1/models', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer YOUR_OPENAI_API_KEY_HERE`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (response.ok) {
-      showStatus('Connection successful! API key is valid.', 'success');
-    } else {
-      showStatus('Connection failed. Please check your API key.', 'error');
-    }
-  } catch (error) {
-    showStatus('Connection error: ' + error.message, 'error');
   }
 }
 
