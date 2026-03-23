@@ -73,6 +73,30 @@ class PaymentManager {
       throw error;
     }
   }
+
+  async recoverSubscriptionByEmail(email) {
+    if (!this.userId) {
+      throw new Error('User ID not initialized');
+    }
+
+    const response = await fetch(`${this.apiBaseUrl}/api/subscriptions/recover-by-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        userId: this.userId
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Failed to recover subscription');
+    }
+
+    return data;
+  }
   
   async cancelSubscription(subscriptionId) {
     try {

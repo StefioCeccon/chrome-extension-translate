@@ -44,6 +44,101 @@ router.post('/create-checkout-session', async (req, res) => {
   }
 });
 
+// Recover subscription by billing email (useful after extension reinstall/new userId)
+router.post('/recover-by-email', async (req, res) => {
+  try {
+    const { email, userId } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Missing required field: email' });
+    }
+
+    const finalUserId = userId || uuidv4();
+    await SubscriptionModel.createUser(finalUserId);
+
+    const customers = await stripe.customers.list({ email, limit: 10 });
+    if (!customers.data.length) {
+      return res.status(404).json({ error: 'No customer found for this email' });
+    }
+
+    let bestMatch = null;
+    for (const customer of customers.data) {
+      const subs = await stripe.subscriptions.list({ customer: customer.id, limit: 20 });
+      for (const sub of subs.data) {
+        const statusPriority = {
+          active: 4,
+          trialing: 3,
+          past_due: 2,
+          unpaid: 1,
+          canceled: 0,
+          incomplete: 0,
+          incomplete_expired: 0
+        };
+        const priority = statusPriority[sub.status] ?? 0;
+        const periodEnd = sub.current_period_end || 0;
+        if (
+          !bestMatch ||
+          priority > bestMatch.priority ||
+          (priority === bestMatch.priority && periodEnd > bestMatch.periodEnd)
+        ) {
+          bestMatch = {
+            customer,
+            subscription: sub,
+            priority,
+            periodEnd
+          };
+        }
+      }
+    }
+
+    if (!bestMatch || !bestMatch.subscription) {
+      return res.status(404).json({ error: 'No subscription found for this email' });
+    }
+
+    // Link Stripe objects to this extension user so future webhooks map correctly.
+    await stripe.customers.update(bestMatch.customer.id, {
+      metadata: {
+        ...(bestMatch.customer.metadata || {}),
+        userId: finalUserId
+      }
+    });
+    await stripe.subscriptions.update(bestMatch.subscription.id, {
+      metadata: {
+        ...(bestMatch.subscription.metadata || {}),
+        userId: finalUserId
+      }
+    });
+
+    await SubscriptionModel.updateSubscription(finalUserId, {
+      stripe_customer_id: bestMatch.customer.id,
+      stripe_subscription_id: bestMatch.subscription.id,
+      status: bestMatch.subscription.status,
+      current_period_start: bestMatch.subscription.current_period_start,
+      current_period_end: bestMatch.subscription.current_period_end
+    });
+
+    const hasActiveSubscription =
+      bestMatch.subscription.status === 'active' || bestMatch.subscription.status === 'trialing';
+
+    res.json({
+      recovered: true,
+      userId: finalUserId,
+      customerId: bestMatch.customer.id,
+      subscriptionId: bestMatch.subscription.id,
+      status: bestMatch.subscription.status,
+      hasActiveSubscription,
+      currentPeriodEnd: bestMatch.subscription.current_period_end
+        ? new Date(bestMatch.subscription.current_period_end * 1000).toISOString()
+        : null
+    });
+  } catch (error) {
+    console.error('Error recovering subscription by email:', error);
+    res.status(400).json({
+      error: 'Failed to recover subscription',
+      message: error.message
+    });
+  }
+});
+
 // Create a new subscription
 router.post('/create', async (req, res) => {
   try {

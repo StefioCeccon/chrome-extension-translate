@@ -12,15 +12,16 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('upgradeButton').addEventListener('click', handleUpgrade);
   document.getElementById('confirmUpgradeButton').addEventListener('click', handleConfirmUpgrade);
   document.getElementById('cancelUpgradeButton').addEventListener('click', hidePaymentForm);
+  document.getElementById('recoverSubscriptionButton').addEventListener('click', handleRecoverSubscription);
   document.getElementById('cancelSubscriptionButton').addEventListener('click', handleCancelAtPeriodEnd);
 });
 
 async function refreshSubscriptionStatusIfNeeded() {
   try {
-    const localState = await chrome.storage.sync.get(['subscriptionStatus', 'subscriptionId']);
+    const localState = await chrome.storage.sync.get(['subscriptionStatus', 'subscriptionId', 'billingEmail']);
     const shouldRefresh =
       localState.subscriptionStatus === 'active' || !!localState.subscriptionId;
-    if (!shouldRefresh || !paymentManager) return;
+    if (!paymentManager) return;
 
     // Give PaymentManager a brief moment to initialize userId/Stripe internals.
     for (let i = 0; i < 20; i++) {
@@ -28,13 +29,27 @@ async function refreshSubscriptionStatusIfNeeded() {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    const statusData = await paymentManager.getSubscriptionStatus();
-    await chrome.storage.sync.set({
-      subscriptionStatus: statusData.status || 'inactive',
-      subscriptionExpiry: statusData.currentPeriodEnd || null,
-      translationCount: statusData.translationCount || 0,
-      subscriptionId: statusData.subscriptionId || localState.subscriptionId || null
-    });
+    if (shouldRefresh) {
+      const statusData = await paymentManager.getSubscriptionStatus();
+      await chrome.storage.sync.set({
+        subscriptionStatus: statusData.status || 'inactive',
+        subscriptionExpiry: statusData.currentPeriodEnd || null,
+        translationCount: statusData.translationCount || 0,
+        subscriptionId: statusData.subscriptionId || localState.subscriptionId || null
+      });
+    } else if (localState.billingEmail) {
+      // Auto-recover after reinstall if we still know the billing email.
+      try {
+        const recovered = await paymentManager.recoverSubscriptionByEmail(localState.billingEmail);
+        await chrome.storage.sync.set({
+          subscriptionStatus: recovered.status || 'inactive',
+          subscriptionExpiry: recovered.currentPeriodEnd || null,
+          subscriptionId: recovered.subscriptionId || null
+        });
+      } catch (recoverError) {
+        console.warn('Popup: Auto-recover skipped:', recoverError.message);
+      }
+    }
 
     loadUsageData();
   } catch (error) {
@@ -170,6 +185,7 @@ async function handleConfirmUpgrade() {
   confirmButton.disabled = true;
   try {
     await paymentManager.createSubscription(email);
+    await chrome.storage.sync.set({ billingEmail: email });
     showStatus('Checkout opened in a new tab. Complete payment, then reopen popup to sync status.', 'success');
     hidePaymentForm();
   } catch (error) {
@@ -177,6 +193,39 @@ async function handleConfirmUpgrade() {
   } finally {
     confirmButton.textContent = 'Continue to secure checkout';
     confirmButton.disabled = false;
+  }
+}
+
+async function handleRecoverSubscription() {
+  const email = document.getElementById('billingEmail').value.trim();
+  if (!email) {
+    showStatus('Enter your subscription email to recover access.', 'error');
+    return;
+  }
+  if (!paymentManager) {
+    showStatus('Payment manager is not ready.', 'error');
+    return;
+  }
+
+  const recoverButton = document.getElementById('recoverSubscriptionButton');
+  recoverButton.textContent = 'Recovering...';
+  recoverButton.disabled = true;
+  try {
+    const recovered = await paymentManager.recoverSubscriptionByEmail(email);
+    await chrome.storage.sync.set({
+      billingEmail: email,
+      subscriptionStatus: recovered.status || 'inactive',
+      subscriptionExpiry: recovered.currentPeriodEnd || null,
+      subscriptionId: recovered.subscriptionId || null
+    });
+    showStatus('Subscription recovered. Your premium access is restored.', 'success');
+    hidePaymentForm();
+    loadUsageData();
+  } catch (error) {
+    showStatus(`Recover failed: ${error.message}`, 'error');
+  } finally {
+    recoverButton.textContent = 'Recover existing subscription';
+    recoverButton.disabled = false;
   }
 }
 
