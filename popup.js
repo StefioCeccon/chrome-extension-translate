@@ -1,12 +1,54 @@
+let paymentManager = null;
+
 document.addEventListener('DOMContentLoaded', function() {
   // Load saved settings and usage data
   loadSettings();
   loadUsageData();
+  initializePaymentManager();
+  refreshSubscriptionStatusIfNeeded();
   
   // Add event listeners
   document.getElementById('saveSettings').addEventListener('click', saveSettings);
   document.getElementById('upgradeButton').addEventListener('click', handleUpgrade);
+  document.getElementById('confirmUpgradeButton').addEventListener('click', handleConfirmUpgrade);
+  document.getElementById('cancelUpgradeButton').addEventListener('click', hidePaymentForm);
+  document.getElementById('cancelSubscriptionButton').addEventListener('click', handleCancelAtPeriodEnd);
 });
+
+async function refreshSubscriptionStatusIfNeeded() {
+  try {
+    const localState = await chrome.storage.sync.get(['subscriptionStatus', 'subscriptionId']);
+    const shouldRefresh =
+      localState.subscriptionStatus === 'active' || !!localState.subscriptionId;
+    if (!shouldRefresh || !paymentManager) return;
+
+    // Give PaymentManager a brief moment to initialize userId/Stripe internals.
+    for (let i = 0; i < 20; i++) {
+      if (paymentManager.userId) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    const statusData = await paymentManager.getSubscriptionStatus();
+    await chrome.storage.sync.set({
+      subscriptionStatus: statusData.status || 'inactive',
+      subscriptionExpiry: statusData.currentPeriodEnd || null,
+      translationCount: statusData.translationCount || 0,
+      subscriptionId: statusData.subscriptionId || localState.subscriptionId || null
+    });
+
+    loadUsageData();
+  } catch (error) {
+    console.warn('Popup: Could not refresh subscription status on load:', error.message);
+  }
+}
+
+function initializePaymentManager() {
+  if (typeof window.PaymentManager !== 'function') {
+    console.error('PaymentManager is not available');
+    return;
+  }
+  paymentManager = new window.PaymentManager();
+}
 
 function loadSettings() {
   chrome.storage.sync.get(['targetLang', 'autoTranslate'], function(result) {
@@ -38,6 +80,7 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
   const upgradeButton = document.getElementById('upgradeButton');
   const subscriptionInfo = document.getElementById('subscriptionInfo');
   const subscriptionStatus = document.getElementById('subscriptionStatus');
+  const cancelSubscriptionButton = document.getElementById('cancelSubscriptionButton');
   
   // Update usage count
   usageCount.textContent = count;
@@ -49,9 +92,13 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
   // Show/hide upgrade button based on usage and subscription status
   if (count >= 50 && !isSubscribed) {
     upgradeButton.style.display = 'block';
+    cancelSubscriptionButton.style.display = 'none';
     subscriptionInfo.innerHTML = '<strong>Free limit reached!</strong> Upgrade to continue translating.';
+    subscriptionStatus.style.display = 'none';
   } else if (isSubscribed) {
     upgradeButton.style.display = 'none';
+    cancelSubscriptionButton.style.display = 'block';
+    hidePaymentForm();
     const expiryDate = new Date(expiry);
     const formattedDate = expiryDate.toLocaleDateString();
     subscriptionInfo.innerHTML = `<strong>Premium Active</strong> - Expires: ${formattedDate}`;
@@ -59,8 +106,11 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
     subscriptionStatus.style.display = 'block';
   } else {
     upgradeButton.style.display = 'none';
+    cancelSubscriptionButton.style.display = 'none';
+    hidePaymentForm();
     const remaining = Math.max(0, 50 - count);
     subscriptionInfo.innerHTML = `<strong>${remaining} free messages remaining</strong>`;
+    subscriptionStatus.style.display = 'none';
   }
   
   // Change progress bar color based on usage
@@ -94,35 +144,73 @@ function saveSettings() {
 }
 
 async function handleUpgrade() {
-  const upgradeButton = document.getElementById('upgradeButton');
-  upgradeButton.textContent = 'Processing...';
-  upgradeButton.disabled = true;
-  
+  const form = document.getElementById('paymentForm');
+  form.style.display = form.style.display === 'block' ? 'none' : 'block';
+}
+
+function hidePaymentForm() {
+  const form = document.getElementById('paymentForm');
+  form.style.display = 'none';
+}
+
+async function handleConfirmUpgrade() {
+  const confirmButton = document.getElementById('confirmUpgradeButton');
+  const email = document.getElementById('billingEmail').value.trim();
+
+  if (!email) {
+    showStatus('Please enter your billing email.', 'error');
+    return;
+  }
+  if (!paymentManager) {
+    showStatus('Payment manager is not ready.', 'error');
+    return;
+  }
+
+  confirmButton.textContent = 'Processing payment...';
+  confirmButton.disabled = true;
   try {
-    // In a real implementation, this would integrate with Stripe or another payment processor
-    // For now, we'll simulate a successful subscription
-    const subscriptionData = {
-      subscriptionStatus: 'active',
-      subscriptionExpiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-      subscriptionStart: new Date().toISOString()
-    };
-    
-    // Save subscription data
-    chrome.storage.sync.set(subscriptionData, function() {
-      showStatus('Subscription activated successfully!', 'success');
-      
-      // Reload usage data to update display
-      loadUsageData();
-      
-      // Reset button
-      upgradeButton.textContent = 'Upgrade to Premium - $0.99/month';
-      upgradeButton.disabled = false;
-    });
-    
+    await paymentManager.createSubscription(email);
+    showStatus('Checkout opened in a new tab. Complete payment, then reopen popup to sync status.', 'success');
+    hidePaymentForm();
   } catch (error) {
-    showStatus('Upgrade failed: ' + error.message, 'error');
-    upgradeButton.textContent = 'Upgrade to Premium - $0.99/month';
-    upgradeButton.disabled = false;
+    showStatus(`Payment failed: ${error.message}`, 'error');
+  } finally {
+    confirmButton.textContent = 'Continue to secure checkout';
+    confirmButton.disabled = false;
+  }
+}
+
+async function handleCancelAtPeriodEnd() {
+  const cancelButton = document.getElementById('cancelSubscriptionButton');
+  if (!paymentManager) {
+    showStatus('Payment manager is not ready.', 'error');
+    return;
+  }
+
+  const { subscriptionId } = await chrome.storage.sync.get(['subscriptionId']);
+  if (!subscriptionId) {
+    showStatus('No active subscription found to cancel.', 'error');
+    return;
+  }
+
+  cancelButton.textContent = 'Cancelling...';
+  cancelButton.disabled = true;
+  try {
+    const result = await paymentManager.cancelSubscription(subscriptionId);
+    const statusData = await paymentManager.getSubscriptionStatus();
+
+    await chrome.storage.sync.set({
+      subscriptionStatus: statusData.status || result.status || 'canceled',
+      subscriptionExpiry: statusData.currentPeriodEnd || null
+    });
+
+    showStatus('Subscription will cancel at period end.', 'success');
+    loadUsageData();
+  } catch (error) {
+    showStatus(`Cancellation failed: ${error.message}`, 'error');
+  } finally {
+    cancelButton.textContent = 'Cancel at Period End';
+    cancelButton.disabled = false;
   }
 }
 

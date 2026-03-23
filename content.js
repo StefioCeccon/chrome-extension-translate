@@ -48,6 +48,9 @@ class SubtitleTranslator {
     this.pendingTranslations = new Map();
     this.translationDebounceDelay = 2000; // 2 seconds
     this.processedTexts = new Set();
+    this.translationResultCache = new Map();
+    this.recentRequestTimestamps = new Map();
+    this.requestCooldownMs = 45000;
     this.periodicScanInterval = null;
     this.cleanupInterval = null;
     this.canTranslate = true; // Track if user can still translate
@@ -146,6 +149,17 @@ class SubtitleTranslator {
   
   clearProcessedTextCache() {
     this.processedTexts.clear();
+    const cutoff = Date.now() - 600000;
+    for (const [key, value] of this.translationResultCache.entries()) {
+      if (!value || value.timestamp < cutoff) {
+        this.translationResultCache.delete(key);
+      }
+    }
+    for (const [key, timestamp] of this.recentRequestTimestamps.entries()) {
+      if (timestamp < cutoff) {
+        this.recentRequestTimestamps.delete(key);
+      }
+    }
     console.log('SubtitleTranslator: Cleared processed text cache');
   }
   
@@ -358,6 +372,91 @@ class SubtitleTranslator {
     
     return hasCaptionLabel || hasCaptionClass;
   }
+
+  shouldScanCaptionContainer(element) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+
+    if (element.classList.contains('ygicle') && element.classList.contains('VbkSUe')) {
+      return true;
+    }
+
+    const hasCaptionLabel =
+      element.getAttribute('aria-label') === 'Captions' ||
+      element.getAttribute('aria-label') === 'Subtitles';
+    const hasLegacyClass = element.classList.contains('ZPyPXe');
+    if (!(hasCaptionLabel || hasLegacyClass)) return false;
+
+    if (element.querySelector('.ygicle.VbkSUe')) {
+      return false;
+    }
+    return true;
+  }
+
+  getTranslationKey(text) {
+    if (!text) return '';
+    return text.toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  resolveLiveCaptionTextNode(originalNode, sourceContainer, translatedFromText) {
+    if (originalNode && originalNode.nodeType === Node.TEXT_NODE && originalNode.isConnected) {
+      return originalNode;
+    }
+
+    if (!sourceContainer || !sourceContainer.isConnected) {
+      return null;
+    }
+
+    const wantedKey = this.getTranslationKey(translatedFromText);
+    if (!wantedKey) return null;
+
+    const walker = document.createTreeWalker(
+      sourceContainer,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+    let candidate;
+    while ((candidate = walker.nextNode())) {
+      const text = (candidate.textContent || '').trim();
+      if (!text) continue;
+      const cleaned = this.cleanCaptionText(text);
+      const key = this.getTranslationKey(cleaned || text);
+      if (key === wantedKey) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  isLikelySpeakerLabelNode(node, cleanedText) {
+    if (!node || !node.parentElement) return false;
+    if (!cleanedText || cleanedText.length > 30) return false;
+    if (cleanedText.split(/\s+/).length > 3) return false;
+
+    // Structure-based detection (no class names):
+    // In Meet, speaker label branch is often a short-text sibling of an avatar image.
+    // Avoid false positives on the real caption sentence branch.
+    let branch = node.parentElement;
+    for (let depth = 0; branch && depth < 5; depth++) {
+      const parent = branch.parentElement;
+      if (!parent) break;
+
+      const siblings = Array.from(parent.children);
+      const hasImageSibling = siblings.some(
+        (sib) => sib !== branch && sib.querySelector && sib.querySelector('img[src]')
+      );
+      if (hasImageSibling) {
+        const branchText = (branch.textContent || '').trim();
+        const looksLikeSentence =
+          branchText.length > 30 ||
+          branchText.split(/\s+/).length > 3 ||
+          /[,.!?]/.test(branchText);
+        return !looksLikeSentence;
+      }
+
+      branch = parent;
+    }
+    return false;
+  }
   
   scanForSubtitles(rootElement) {
     console.log('SubtitleTranslator: scanForSubtitles called, isEnabled:', this.isEnabled, 'canTranslate:', this.canTranslate);
@@ -380,11 +479,20 @@ class SubtitleTranslator {
       console.log('SubtitleTranslator: Looking for caption elements with selectors:', captionSelectors);
       
       const captionElements = rootElement.querySelectorAll(captionSelectors.join(', '));
-      console.log('SubtitleTranslator: Found', captionElements.length, 'caption elements');
+      const filteredCaptionElements = Array.from(captionElements).filter((el) =>
+        this.shouldScanCaptionContainer(el)
+      );
+      console.log(
+        'SubtitleTranslator: Found',
+        captionElements.length,
+        'caption elements (filtered to',
+        filteredCaptionElements.length,
+        'candidate containers)'
+      );
       
-      if (captionElements.length > 0) {
+      if (filteredCaptionElements.length > 0) {
         // Scan within caption containers
-        this.scanTextNodesInCaptions(captionElements);
+        this.scanTextNodesInCaptions(filteredCaptionElements);
       } else {
         console.log('SubtitleTranslator: No caption containers found, trying fallback scan');
         // Fallback to general scanning if no caption containers found
@@ -681,6 +789,12 @@ class SubtitleTranslator {
     
     // Clean the text to remove UI elements
     const cleanedText = this.cleanCaptionText(trimmedText);
+
+    // Skip likely speaker-name labels using structure (avatar branch + text sibling),
+    // without relying on unstable class names.
+    if (this.isLikelySpeakerLabelNode(node, cleanedText)) {
+      return false;
+    }
     
     // If after cleaning there's no meaningful text left, skip it
     if (!cleanedText || cleanedText.length < 3) {
@@ -690,6 +804,11 @@ class SubtitleTranslator {
     
     // Skip common UI text
     if (this.isCommonUI(cleanedText)) {
+      return false;
+    }
+
+    // Skip speaker labels in Meet captions.
+    if (/^(you|me)$/i.test(cleanedText)) {
       return false;
     }
     
@@ -799,8 +918,12 @@ class SubtitleTranslator {
     
     // Check if this text was already processed globally
     const textContent = textNode.textContent.trim();
-    if (this.processedTexts.has(textContent)) {
-      console.log('SubtitleTranslator: Skipping already processed text:', textContent);
+    const textToTranslate = (textNode._cleanedText || textContent).trim();
+    const translationKey = this.getTranslationKey(textToTranslate);
+    if (!translationKey) return;
+
+    if (this.processedTexts.has(translationKey)) {
+      console.log('SubtitleTranslator: Skipping already processed text:', textToTranslate);
       return;
     }
     
@@ -810,43 +933,68 @@ class SubtitleTranslator {
       return;
     }
     
-    // Mark this text as processed globally
-    this.processedTexts.add(textContent);
+    // Mark this normalized text as processed globally
+    this.processedTexts.add(translationKey);
     textNode._lastProcessedText = textContent;
-    
-    // Use the cleaned text for translation if available
-    const textToTranslate = textNode._cleanedText || textContent;
-    
+
     // Use debounced translation to avoid excessive API calls
-    this.performTextNodeTranslation(textNode, textToTranslate);
+    const sourceContainer = this.findCaptionContainer(textNode);
+    this.performTextNodeTranslation(textNode, sourceContainer, textToTranslate, translationKey);
   }
   
-  performTextNodeTranslation(textNode, textContent) {
+  performTextNodeTranslation(textNode, sourceContainer, textContent, translationKey) {
+    const cached = this.translationResultCache.get(translationKey);
+    if (cached && (Date.now() - cached.timestamp) < 300000) {
+      if (cached.translatedText && cached.translatedText !== textContent) {
+        const originalText = textNode.textContent.trim();
+        this.displayTranslation(textNode, originalText, cached.translatedText);
+        this.translatedElements.add(textNode);
+      }
+      return;
+    }
+
+    const lastRequestedAt = this.recentRequestTimestamps.get(translationKey);
+    if (lastRequestedAt && (Date.now() - lastRequestedAt) < this.requestCooldownMs) {
+      console.log('SubtitleTranslator: Recently requested, skipping duplicate:', textContent);
+      return;
+    }
+
     // Clear any existing pending translation for this text
-    if (this.pendingTranslations.has(textContent)) {
-      clearTimeout(this.pendingTranslations.get(textContent));
+    if (this.pendingTranslations.has(translationKey)) {
+      clearTimeout(this.pendingTranslations.get(translationKey));
     }
     
     // Set up a new debounced translation
     const timeoutId = setTimeout(async () => {
       try {
         console.log('SubtitleTranslator: Processing text node for translation:', textContent);
+        this.recentRequestTimestamps.set(translationKey, Date.now());
         
         const translatedText = await this.translateText(textContent);
+        this.translationResultCache.set(translationKey, {
+          translatedText,
+          timestamp: Date.now()
+        });
         if (translatedText && translatedText !== textContent) {
-          // Use the original text content for display (to preserve UI elements)
-          const originalText = textNode.textContent.trim();
-          this.displayTranslation(textNode, originalText, translatedText);
-          this.translatedElements.add(textNode);
+          const liveTextNode = this.resolveLiveCaptionTextNode(textNode, sourceContainer, textContent);
+          const targetNode = liveTextNode || textNode;
+          const originalText = (targetNode && targetNode.textContent ? targetNode.textContent.trim() : textContent);
+
+          if (targetNode && targetNode.isConnected) {
+            this.displayTranslation(targetNode, originalText, translatedText);
+            this.translatedElements.add(targetNode);
+          } else {
+            console.log('SubtitleTranslator: No live caption node found, skipping render');
+          }
         }
       } catch (error) {
         console.error('SubtitleTranslator: Error in debounced translation:', error);
       } finally {
-        this.pendingTranslations.delete(textContent);
+        this.pendingTranslations.delete(translationKey);
       }
     }, this.translationDebounceDelay);
     
-    this.pendingTranslations.set(textContent, timeoutId);
+    this.pendingTranslations.set(translationKey, timeoutId);
   }
   
   async translateText(text) {

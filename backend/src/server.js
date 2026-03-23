@@ -16,13 +16,9 @@ const PORT = process.env.PORT || 8080;
 app.use(helmet());
 
 // Rate limiting
-const rateLimitWindowMinutes = parseInt(process.env.RATE_LIMIT_WINDOW_MINUTES || '15', 10);
-const rateLimitMaxRequests = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000', 10);
 const limiter = rateLimit({
-  windowMs: rateLimitWindowMinutes * 60 * 1000,
-  max: rateLimitMaxRequests,
-  standardHeaders: true,
-  legacyHeaders: false,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use(limiter);

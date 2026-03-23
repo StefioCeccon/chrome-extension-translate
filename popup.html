@@ -2,7 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="script-src 'self'; object-src 'none';">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' https://js.stripe.com; style-src 'self' 'unsafe-inline'; frame-src https://js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com https://*.run.app; object-src 'none';"
+  >
   <style>
     body {
       width: 350px;
@@ -159,6 +162,47 @@
       font-size: 12px;
       margin-top: 10px;
     }
+    .payment-form {
+      display: none;
+      margin-top: 10px;
+      border: 1px solid #d9d9d9;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .payment-form .field-label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #444;
+    }
+    .card-element {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      margin-bottom: 10px;
+    }
+    .payment-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .secondary-button {
+      background: #6c757d;
+    }
+    .secondary-button:hover {
+      background: #5a6268;
+    }
+    .danger-button {
+      background: #dc3545;
+      width: 100%;
+      margin-top: 8px;
+      display: none;
+    }
+    .danger-button:hover {
+      background: #bb2d3b;
+    }
   </style>
 </head>
 <body>
@@ -183,7 +227,18 @@
       <button id="upgradeButton" class="subscription-button" style="display: none;">
         Upgrade to Premium - $0.99/month
       </button>
+      <div id="paymentForm" class="payment-form">
+        <label class="field-label" for="billingEmail">Email</label>
+        <input id="billingEmail" type="email" placeholder="you@example.com" autocomplete="email">
+        <div class="payment-actions">
+          <button id="confirmUpgradeButton" class="subscription-button">Continue to secure checkout</button>
+          <button id="cancelUpgradeButton" class="secondary-button" type="button">Cancel</button>
+        </div>
+      </div>
       <div id="subscriptionStatus" class="subscription-status" style="display: none;"></div>
+      <button id="cancelSubscriptionButton" class="danger-button" type="button">
+        Cancel at Period End
+      </button>
     </div>
     
     <div class="input-group">
@@ -215,6 +270,8 @@
     <div id="status" class="status" style="display: none;"></div>
   </div>
   
+  <script src="config.js"></script>
+  <script src="payment.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

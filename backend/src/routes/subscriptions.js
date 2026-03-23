@@ -5,6 +5,42 @@ const { SubscriptionModel } = require('../models/database');
 
 const router = express.Router();
 
+// Create hosted Stripe Checkout session (works from extension popup without Stripe.js)
+router.post('/create-checkout-session', async (req, res) => {
+  try {
+    const { email, userId } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Missing required field: email' });
+    }
+
+    const finalUserId = userId || uuidv4();
+    await SubscriptionModel.createUser(finalUserId);
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer_email: email,
+      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      client_reference_id: finalUserId,
+      metadata: { userId: finalUserId },
+      success_url: `${baseUrl}/health?checkout=success`,
+      cancel_url: `${baseUrl}/health?checkout=cancel`
+    });
+
+    res.json({
+      checkoutUrl: session.url,
+      userId: finalUserId,
+      sessionId: session.id
+    });
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    res.status(400).json({
+      error: 'Failed to create checkout session',
+      message: error.message
+    });
+  }
+});
+
 // Create a new subscription
 router.post('/create', async (req, res) => {
   try {

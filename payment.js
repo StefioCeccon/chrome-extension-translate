@@ -3,10 +3,7 @@
 
 class PaymentManager {
   constructor() {
-    this.stripe = null;
-    this.elements = null;
-    this.cardElement = null;
-    this.isInitialized = false;
+    this.isInitialized = true;
     // Set EXTENSION_BACKEND_BASE_URL in config.js; optional override if this script loads without config.js
     this.apiBaseUrl =
       typeof EXTENSION_BACKEND_BASE_URL !== 'undefined'
@@ -14,54 +11,8 @@ class PaymentManager {
         : 'https://chrome-extension-translate-backend-ce42z5mupq-uc.a.run.app';
     this.userId = null;
     
-    // Initialize Stripe and user ID
-    this.initStripe();
+    // Initialize user ID for backend subscription tracking.
     this.initUserId();
-  }
-  
-  async initStripe() {
-    try {
-      // Load Stripe.js dynamically
-      if (!window.Stripe) {
-        await this.loadStripeScript();
-      }
-      
-      // Initialize Stripe with your publishable key
-      // Replace 'pk_test_your_key_here' with your actual Stripe publishable key
-      this.stripe = Stripe('pk_live_51S7OwrBICWKfko2pZ8DAMDCLGlO2ho7pMd8ILiGQBeHj51d5rwKSdqBWbnppLFDWTedVlokcwBmOYfoooGAjhVuE008CXtyTwc');
-      
-      // Create card element
-      this.elements = this.stripe.elements();
-      this.cardElement = this.elements.create('card', {
-        style: {
-          base: {
-            fontSize: '16px',
-            color: '#424770',
-            '::placeholder': {
-              color: '#aab7c4',
-            },
-          },
-          invalid: {
-            color: '#9e2146',
-          },
-        },
-      });
-      
-      this.isInitialized = true;
-      console.log('PaymentManager: Stripe initialized successfully');
-    } catch (error) {
-      console.error('PaymentManager: Error initializing Stripe:', error);
-    }
-  }
-  
-  async loadStripeScript() {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://js.stripe.com/v3/';
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
   }
   
   async initUserId() {
@@ -82,39 +33,18 @@ class PaymentManager {
   }
   
   async createSubscription(email) {
-    if (!this.isInitialized) {
-      throw new Error('Stripe not initialized');
-    }
-    
     if (!this.userId) {
       throw new Error('User ID not initialized');
     }
     
     try {
-      // Create payment method
-      const { paymentMethod, error } = await this.stripe.createPaymentMethod({
-        type: 'card',
-        card: this.cardElement,
-        billing_details: {
-          name: 'Extension User',
-          email: email
-        },
-      });
-      
-      if (error) {
-        throw new Error(error.message);
-      }
-      
-      console.log('PaymentManager: Payment method created:', paymentMethod.id);
-      
-      // Send payment method to backend to create subscription
-      const response = await fetch(`${this.apiBaseUrl}/api/subscriptions/create`, {
+      // Hosted Checkout flow: no Stripe.js in extension popup.
+      const response = await fetch(`${this.apiBaseUrl}/api/subscriptions/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          paymentMethodId: paymentMethod.id,
           email: email,
           userId: this.userId
         })
@@ -125,31 +55,17 @@ class PaymentManager {
         throw new Error(errorData.message || 'Failed to create subscription');
       }
       
-      const subscriptionData = await response.json();
-      
-      // Handle 3D Secure if required
-      if (subscriptionData.requiresAction && subscriptionData.clientSecret) {
-        const { error: confirmError } = await this.stripe.confirmCardPayment(
-          subscriptionData.clientSecret
-        );
-        
-        if (confirmError) {
-          throw new Error(confirmError.message);
-        }
+      const checkoutData = await response.json();
+      if (!checkoutData.checkoutUrl) {
+        throw new Error('Checkout URL missing from backend response');
       }
-      
-      // Store subscription info locally
-      await chrome.storage.local.set({
-        subscriptionId: subscriptionData.subscriptionId,
-        customerId: subscriptionData.customerId,
-        subscriptionStatus: subscriptionData.status
-      });
-      
+
+      await chrome.tabs.create({ url: checkoutData.checkoutUrl });
+
       return {
         success: true,
-        subscriptionId: subscriptionData.subscriptionId,
-        customerId: subscriptionData.customerId,
-        status: subscriptionData.status
+        userId: checkoutData.userId,
+        status: 'checkout_started'
       };
       
     } catch (error) {
@@ -274,25 +190,19 @@ class PaymentManager {
     }
   }
   
-  // Method to mount card element to a container
+  // Legacy no-op: kept for compatibility with popup.js.
   mountCardElement(container) {
-    if (this.cardElement && container) {
-      this.cardElement.mount(container);
-    }
+    return container;
   }
   
-  // Method to unmount card element
+  // Legacy no-op
   unmountCardElement() {
-    if (this.cardElement) {
-      this.cardElement.unmount();
-    }
+    return;
   }
   
-  // Method to clear card element
+  // Legacy no-op
   clearCardElement() {
-    if (this.cardElement) {
-      this.cardElement.clear();
-    }
+    return;
   }
 }
 
