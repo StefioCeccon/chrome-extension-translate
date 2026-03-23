@@ -12,6 +12,10 @@ const { initializeDatabase } = require('./models/database');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Cloud Run sits behind a reverse proxy and sets X-Forwarded-* headers.
+// Trusting the first proxy hop lets middleware (e.g. rate limiter) resolve client IP correctly.
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 
