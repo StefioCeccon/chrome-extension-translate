@@ -7,6 +7,21 @@ const router = express.Router();
 // Webhook endpoint - must use raw body
 router.use(express.raw({ type: 'application/json' }));
 
+async function resolveUserIdFromSubscription(subscription) {
+  // 1) best source for Checkout-created subscriptions
+  if (subscription?.metadata?.userId) return subscription.metadata.userId;
+
+  // 2) fallback to customer metadata (legacy path)
+  try {
+    const customer = await stripe.customers.retrieve(subscription.customer);
+    if (customer?.metadata?.userId) return customer.metadata.userId;
+  } catch (err) {
+    console.warn('Could not read customer metadata for subscription:', subscription?.id, err.message);
+  }
+
+  return null;
+}
+
 router.post('/stripe', async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
@@ -62,9 +77,7 @@ async function handleSubscriptionCreated(subscription) {
   console.log('Subscription created:', subscription.id);
   
   try {
-    // Get customer to find userId
-    const customer = await stripe.customers.retrieve(subscription.customer);
-    const userId = customer.metadata?.userId;
+    const userId = await resolveUserIdFromSubscription(subscription);
 
     if (!userId) {
       console.error('No userId found in customer metadata for subscription:', subscription.id);
@@ -90,9 +103,7 @@ async function handleSubscriptionUpdated(subscription) {
   console.log('Subscription updated:', subscription.id, 'Status:', subscription.status);
   
   try {
-    // Get customer to find userId
-    const customer = await stripe.customers.retrieve(subscription.customer);
-    const userId = customer.metadata?.userId;
+    const userId = await resolveUserIdFromSubscription(subscription);
 
     if (!userId) {
       console.error('No userId found in customer metadata for subscription:', subscription.id);
@@ -117,9 +128,7 @@ async function handleSubscriptionDeleted(subscription) {
   console.log('Subscription deleted:', subscription.id);
   
   try {
-    // Get customer to find userId
-    const customer = await stripe.customers.retrieve(subscription.customer);
-    const userId = customer.metadata?.userId;
+    const userId = await resolveUserIdFromSubscription(subscription);
 
     if (!userId) {
       console.error('No userId found in customer metadata for subscription:', subscription.id);
@@ -145,8 +154,7 @@ async function handlePaymentSucceeded(invoice) {
     // Get subscription
     if (invoice.subscription) {
       const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
-      const customer = await stripe.customers.retrieve(subscription.customer);
-      const userId = customer.metadata?.userId;
+      const userId = await resolveUserIdFromSubscription(subscription);
 
       if (!userId) {
         console.error('No userId found in customer metadata for invoice:', invoice.id);
@@ -176,8 +184,7 @@ async function handlePaymentFailed(invoice) {
     // Get subscription
     if (invoice.subscription) {
       const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
-      const customer = await stripe.customers.retrieve(subscription.customer);
-      const userId = customer.metadata?.userId;
+      const userId = await resolveUserIdFromSubscription(subscription);
 
       if (!userId) {
         console.error('No userId found in customer metadata for invoice:', invoice.id);
@@ -206,8 +213,7 @@ async function handleTrialWillEnd(subscription) {
   console.log('Trial will end for subscription:', subscription.id);
   
   try {
-    const customer = await stripe.customers.retrieve(subscription.customer);
-    const userId = customer.metadata?.userId;
+    const userId = await resolveUserIdFromSubscription(subscription);
 
     if (!userId) {
       console.error('No userId found in customer metadata for subscription:', subscription.id);

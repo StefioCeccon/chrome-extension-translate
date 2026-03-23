@@ -23,8 +23,11 @@ router.post('/create-checkout-session', async (req, res) => {
       line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
       client_reference_id: finalUserId,
       metadata: { userId: finalUserId },
-      success_url: `${baseUrl}/health?checkout=success`,
-      cancel_url: `${baseUrl}/health?checkout=cancel`
+      subscription_data: {
+        metadata: { userId: finalUserId }
+      },
+      success_url: `${baseUrl}/checkout/success`,
+      cancel_url: `${baseUrl}/checkout/cancel`
     });
 
     res.json({

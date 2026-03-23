@@ -124,7 +124,7 @@ class SubtitleTranslator {
     
     notification.innerHTML = `
       <div style="font-weight: bold; margin-bottom: 8px;">Free Translation Limit Reached</div>
-      <div style="margin-bottom: 12px;">You've used all 100 free translations. Upgrade to Premium for unlimited translations!</div>
+      <div style="margin-bottom: 12px;">You've used all 50 free translations. Upgrade to Premium for unlimited translations!</div>
       <button id="upgradeNow" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; width: 100%;">
         Upgrade Now - $0.99/month
       </button>
@@ -134,9 +134,17 @@ class SubtitleTranslator {
     
     // Add click handler for upgrade button
     document.getElementById('upgradeNow').addEventListener('click', () => {
-      // Open popup to handle upgrade
-      chrome.runtime.sendMessage({ action: 'openPopup' });
-      notification.remove();
+      // Browser extensions cannot reliably force-open the action popup from content script.
+      // Give a clear next step instead.
+      notification.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 8px;">Upgrade in Extension Popup</div>
+        <div>Please click the extension icon in your browser toolbar and choose Upgrade.</div>
+      `;
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.remove();
+        }
+      }, 3500);
     });
     
     // Auto-remove after 10 seconds

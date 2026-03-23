@@ -61,6 +61,61 @@ app.get('/health', (req, res) => {
   });
 });
 
+function renderCheckoutPage({ title, message, hint, color }) {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f6f8fb; margin: 0; padding: 24px; color: #1f2937; }
+    .card { max-width: 640px; margin: 40px auto; background: #fff; border-radius: 12px; border: 1px solid #e5e7eb; padding: 24px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); }
+    .badge { display: inline-block; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; background: ${color}; margin-bottom: 10px; }
+    h1 { margin: 0 0 12px; font-size: 24px; }
+    p { margin: 0 0 10px; line-height: 1.5; }
+    .muted { color: #6b7280; font-size: 14px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">${title}</div>
+    <h1>${message}</h1>
+    <p>${hint}</p>
+    <p class="muted">You can safely close this window.</p>
+  </div>
+</body>
+</html>`;
+}
+
+app.get('/checkout/success', (req, res) => {
+  res
+    .status(200)
+    .type('html')
+    .send(
+      renderCheckoutPage({
+        title: 'Payment Success',
+        message: 'Thanks! Your subscription is being activated.',
+        hint: 'Close this tab and reopen the extension popup to refresh your subscription status.',
+        color: '#16a34a'
+      })
+    );
+});
+
+app.get('/checkout/cancel', (req, res) => {
+  res
+    .status(200)
+    .type('html')
+    .send(
+      renderCheckoutPage({
+        title: 'Payment Canceled',
+        message: 'Checkout was canceled.',
+        hint: 'No changes were made. You can reopen the extension popup and try again any time.',
+        color: '#dc2626'
+      })
+    );
+});
+
 // API routes
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/translate', translateRoutes);
