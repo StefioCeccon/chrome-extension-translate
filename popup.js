@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('upgradeButton').addEventListener('click', handleUpgrade);
   document.getElementById('confirmUpgradeButton').addEventListener('click', handleConfirmUpgrade);
   document.getElementById('cancelUpgradeButton').addEventListener('click', hidePaymentForm);
+  document.getElementById('restorePremiumButton').addEventListener('click', handleRestorePremiumByEmail);
   document.getElementById('recoverSubscriptionButton').addEventListener('click', handleRecoverSubscription);
   document.getElementById('cancelSubscriptionButton').addEventListener('click', handleCancelAtPeriodEnd);
 });
@@ -96,6 +97,7 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
   const subscriptionInfo = document.getElementById('subscriptionInfo');
   const subscriptionStatus = document.getElementById('subscriptionStatus');
   const cancelSubscriptionButton = document.getElementById('cancelSubscriptionButton');
+  const restorePremiumButton = document.getElementById('restorePremiumButton');
   
   // Update usage count
   usageCount.textContent = count;
@@ -107,11 +109,13 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
   // Show/hide upgrade button based on usage and subscription status
   if (count >= 50 && !isSubscribed) {
     upgradeButton.style.display = 'block';
+    restorePremiumButton.style.display = 'block';
     cancelSubscriptionButton.style.display = 'none';
     subscriptionInfo.innerHTML = '<strong>Free limit reached!</strong> Upgrade to continue translating.';
     subscriptionStatus.style.display = 'none';
   } else if (isSubscribed) {
     upgradeButton.style.display = 'none';
+    restorePremiumButton.style.display = 'none';
     cancelSubscriptionButton.style.display = 'block';
     hidePaymentForm();
     const expiryDate = new Date(expiry);
@@ -121,6 +125,7 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
     subscriptionStatus.style.display = 'block';
   } else {
     upgradeButton.style.display = 'none';
+    restorePremiumButton.style.display = 'block';
     cancelSubscriptionButton.style.display = 'none';
     hidePaymentForm();
     const remaining = Math.max(0, 50 - count);
@@ -136,6 +141,17 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
   } else {
     progressFill.style.backgroundColor = '#4285f4'; // Blue for normal usage
   }
+}
+
+function handleRestorePremiumByEmail() {
+  const form = document.getElementById('paymentForm');
+  form.style.display = 'block';
+
+  // Trigger focus on the email field so the user can recover immediately.
+  setTimeout(() => {
+    const emailInput = document.getElementById('billingEmail');
+    if (emailInput && emailInput.focus) emailInput.focus();
+  }, 0);
 }
 
 function saveSettings() {
