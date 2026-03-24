@@ -177,6 +177,9 @@
       font-weight: 600;
       color: #444;
     }
+    .hidden {
+      display: none !important;
+    }
     .card-element {
       padding: 10px;
       border: 1px solid #ccc;
@@ -233,12 +236,23 @@
       <div id="paymentForm" class="payment-form">
         <label class="field-label" for="billingEmail">Email</label>
         <input id="billingEmail" type="email" placeholder="you@example.com" autocomplete="email">
-        <div class="payment-actions">
+        <div id="checkoutActions" class="payment-actions">
           <button id="confirmUpgradeButton" class="subscription-button">Continue to secure checkout</button>
           <button id="cancelUpgradeButton" class="secondary-button" type="button">Cancel</button>
         </div>
+        <div id="recoverActions" class="hidden" style="margin-top:8px;">
+          <button id="sendRecoveryCodeButton" class="secondary-button" type="button" style="width:100%;margin-bottom:8px;">
+            Send recovery code
+          </button>
+          <label class="field-label" for="recoveryCode">Verification code</label>
+          <input id="recoveryCode" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code">
+          <div class="payment-actions" style="margin-top:8px;">
+            <button id="verifyRecoveryCodeButton" class="subscription-button" type="button">Verify and restore</button>
+            <button id="cancelRecoveryButton" class="secondary-button" type="button">Cancel</button>
+          </div>
+        </div>
         <button id="recoverSubscriptionButton" class="secondary-button" type="button" style="width:100%;margin-top:8px;">
-          Recover existing subscription
+          Recover existing subscription (email code)
         </button>
       </div>
       <div id="subscriptionStatus" class="subscription-status" style="display: none;"></div>
@@ -264,7 +278,7 @@
     </div>
     
     <div class="toggle-container">
-      <label for="autoTranslate">Auto-translate:</label>
+      <label for="autoTranslate">Translate:</label>
       <label class="toggle">
         <input type="checkbox" id="autoTranslate">
         <span class="slider"></span>

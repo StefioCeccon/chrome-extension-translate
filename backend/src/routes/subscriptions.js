@@ -4,6 +4,48 @@ const { v4: uuidv4 } = require('uuid');
 const { SubscriptionModel } = require('../models/database');
 
 const router = express.Router();
+const recoveryCodes = new Map();
+const RECOVERY_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function generateRecoveryCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+async function sendRecoveryCodeEmail(email, code) {
+  const apiKey = process.env.MAILGUN_API_KEY;
+  const domain = process.env.MAILGUN_DOMAIN;
+  const from = process.env.MAILGUN_FROM || `Call Subtitle Translator <postmaster@${domain}>`;
+  if (!apiKey || !domain) {
+    throw new Error('Mailgun is not configured (MAILGUN_API_KEY / MAILGUN_DOMAIN)');
+  }
+
+  const endpoint = `https://api.mailgun.net/v3/${domain}/messages`;
+  const auth = Buffer.from(`api:${apiKey}`).toString('base64');
+  const body = new URLSearchParams({
+    from,
+    to: email,
+    subject: 'Your Call Subtitle Translator recovery code',
+    text: `Your recovery code is ${code}. It expires in 10 minutes.\n\nIf you did not request this, you can ignore this email.`
+  });
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: body.toString()
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Mailgun send failed: ${response.status} ${text.slice(0, 200)}`);
+  }
+}
 
 // Create hosted Stripe Checkout session (works from extension popup without Stripe.js)
 router.post('/create-checkout-session', async (req, res) => {
@@ -45,12 +87,58 @@ router.post('/create-checkout-session', async (req, res) => {
 });
 
 // Recover subscription by billing email (useful after extension reinstall/new userId)
-router.post('/recover-by-email', async (req, res) => {
+router.post('/recover-start', async (req, res) => {
   try {
-    const { email, userId } = req.body;
+    const email = normalizeEmail(req.body?.email);
     if (!email) {
       return res.status(400).json({ error: 'Missing required field: email' });
     }
+
+    const code = generateRecoveryCode();
+    recoveryCodes.set(email, {
+      code,
+      expiresAt: Date.now() + RECOVERY_TTL_MS,
+      attempts: 0
+    });
+    await sendRecoveryCodeEmail(email, code);
+
+    res.json({
+      sent: true,
+      message: 'Verification code sent'
+    });
+  } catch (error) {
+    console.error('Error starting recovery flow:', error);
+    res.status(400).json({
+      error: 'Failed to send recovery code',
+      message: error.message
+    });
+  }
+});
+
+router.post('/recover-verify', async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const code = String(req.body?.code || '').trim();
+    const userId = req.body?.userId;
+    if (!email || !code) {
+      return res.status(400).json({ error: 'Missing required fields: email and code' });
+    }
+
+    const record = recoveryCodes.get(email);
+    if (!record || Date.now() > record.expiresAt) {
+      recoveryCodes.delete(email);
+      return res.status(400).json({ error: 'Code expired or not found' });
+    }
+    if (record.attempts >= 5) {
+      recoveryCodes.delete(email);
+      return res.status(429).json({ error: 'Too many attempts, request a new code' });
+    }
+    if (record.code !== code) {
+      record.attempts += 1;
+      recoveryCodes.set(email, record);
+      return res.status(400).json({ error: 'Invalid verification code' });
+    }
+    recoveryCodes.delete(email);
 
     const finalUserId = userId || uuidv4();
     await SubscriptionModel.createUser(finalUserId);
@@ -80,12 +168,7 @@ router.post('/recover-by-email', async (req, res) => {
           priority > bestMatch.priority ||
           (priority === bestMatch.priority && periodEnd > bestMatch.periodEnd)
         ) {
-          bestMatch = {
-            customer,
-            subscription: sub,
-            priority,
-            periodEnd
-          };
+          bestMatch = { customer, subscription: sub, priority, periodEnd };
         }
       }
     }
@@ -94,18 +177,11 @@ router.post('/recover-by-email', async (req, res) => {
       return res.status(404).json({ error: 'No subscription found for this email' });
     }
 
-    // Link Stripe objects to this extension user so future webhooks map correctly.
     await stripe.customers.update(bestMatch.customer.id, {
-      metadata: {
-        ...(bestMatch.customer.metadata || {}),
-        userId: finalUserId
-      }
+      metadata: { ...(bestMatch.customer.metadata || {}), userId: finalUserId }
     });
     await stripe.subscriptions.update(bestMatch.subscription.id, {
-      metadata: {
-        ...(bestMatch.subscription.metadata || {}),
-        userId: finalUserId
-      }
+      metadata: { ...(bestMatch.subscription.metadata || {}), userId: finalUserId }
     });
 
     await SubscriptionModel.updateSubscription(finalUserId, {
@@ -131,9 +207,9 @@ router.post('/recover-by-email', async (req, res) => {
         : null
     });
   } catch (error) {
-    console.error('Error recovering subscription by email:', error);
+    console.error('Error verifying recovery code:', error);
     res.status(400).json({
-      error: 'Failed to recover subscription',
+      error: 'Failed to verify code',
       message: error.message
     });
   }

@@ -1,4 +1,5 @@
 let paymentManager = null;
+let paymentFormMode = 'checkout'; // checkout | recover
 
 document.addEventListener('DOMContentLoaded', function() {
   // Load saved settings and usage data
@@ -14,6 +15,9 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('cancelUpgradeButton').addEventListener('click', hidePaymentForm);
   document.getElementById('restorePremiumButton').addEventListener('click', handleRestorePremiumByEmail);
   document.getElementById('recoverSubscriptionButton').addEventListener('click', handleRecoverSubscription);
+  document.getElementById('sendRecoveryCodeButton').addEventListener('click', handleSendRecoveryCode);
+  document.getElementById('verifyRecoveryCodeButton').addEventListener('click', handleVerifyRecoveryCode);
+  document.getElementById('cancelRecoveryButton').addEventListener('click', hidePaymentForm);
   document.getElementById('cancelSubscriptionButton').addEventListener('click', handleCancelAtPeriodEnd);
 });
 
@@ -41,7 +45,7 @@ async function refreshSubscriptionStatusIfNeeded() {
     } else if (localState.billingEmail) {
       // Auto-recover after reinstall if we still know the billing email.
       try {
-        const recovered = await paymentManager.recoverSubscriptionByEmail(localState.billingEmail);
+        const recovered = await paymentManager.getSubscriptionStatus();
         await chrome.storage.sync.set({
           subscriptionStatus: recovered.status || 'inactive',
           subscriptionExpiry: recovered.currentPeriodEnd || null,
@@ -144,14 +148,7 @@ function updateUsageDisplay(count, isSubscribed, expiry) {
 }
 
 function handleRestorePremiumByEmail() {
-  const form = document.getElementById('paymentForm');
-  form.style.display = 'block';
-
-  // Trigger focus on the email field so the user can recover immediately.
-  setTimeout(() => {
-    const emailInput = document.getElementById('billingEmail');
-    if (emailInput && emailInput.focus) emailInput.focus();
-  }, 0);
+  showPaymentForm('recover');
 }
 
 function saveSettings() {
@@ -176,12 +173,36 @@ function saveSettings() {
 
 async function handleUpgrade() {
   const form = document.getElementById('paymentForm');
-  form.style.display = form.style.display === 'block' ? 'none' : 'block';
+  if (form.style.display === 'block' && paymentFormMode === 'checkout') {
+    hidePaymentForm();
+    return;
+  }
+  showPaymentForm('checkout');
 }
 
 function hidePaymentForm() {
   const form = document.getElementById('paymentForm');
   form.style.display = 'none';
+  document.getElementById('recoveryCode').value = '';
+}
+
+function showPaymentForm(mode) {
+  paymentFormMode = mode;
+  const form = document.getElementById('paymentForm');
+  const checkoutActions = document.getElementById('checkoutActions');
+  const recoverActions = document.getElementById('recoverActions');
+  const recoverToggle = document.getElementById('recoverSubscriptionButton');
+
+  form.style.display = 'block';
+  if (mode === 'recover') {
+    checkoutActions.classList.add('hidden');
+    recoverActions.classList.remove('hidden');
+    recoverToggle.classList.add('hidden');
+  } else {
+    checkoutActions.classList.remove('hidden');
+    recoverActions.classList.add('hidden');
+    recoverToggle.classList.remove('hidden');
+  }
 }
 
 async function handleConfirmUpgrade() {
@@ -213,6 +234,10 @@ async function handleConfirmUpgrade() {
 }
 
 async function handleRecoverSubscription() {
+  showPaymentForm('recover');
+}
+
+async function handleSendRecoveryCode() {
   const email = document.getElementById('billingEmail').value.trim();
   if (!email) {
     showStatus('Enter your subscription email to recover access.', 'error');
@@ -223,11 +248,39 @@ async function handleRecoverSubscription() {
     return;
   }
 
-  const recoverButton = document.getElementById('recoverSubscriptionButton');
-  recoverButton.textContent = 'Recovering...';
-  recoverButton.disabled = true;
+  const sendButton = document.getElementById('sendRecoveryCodeButton');
+  sendButton.textContent = 'Sending...';
+  sendButton.disabled = true;
   try {
-    const recovered = await paymentManager.recoverSubscriptionByEmail(email);
+    await paymentManager.startRecoverSubscriptionByEmail(email);
+    await chrome.storage.sync.set({ billingEmail: email });
+    showStatus('Recovery code sent. Check your email and enter the 6-digit code.', 'success');
+    document.getElementById('recoveryCode').focus();
+  } catch (error) {
+    showStatus(`Could not send code: ${error.message}`, 'error');
+  } finally {
+    sendButton.textContent = 'Send recovery code';
+    sendButton.disabled = false;
+  }
+}
+
+async function handleVerifyRecoveryCode() {
+  const email = document.getElementById('billingEmail').value.trim();
+  const code = document.getElementById('recoveryCode').value.trim();
+  if (!email || !code) {
+    showStatus('Enter both email and code.', 'error');
+    return;
+  }
+  if (!paymentManager) {
+    showStatus('Payment manager is not ready.', 'error');
+    return;
+  }
+
+  const verifyButton = document.getElementById('verifyRecoveryCodeButton');
+  verifyButton.textContent = 'Verifying...';
+  verifyButton.disabled = true;
+  try {
+    const recovered = await paymentManager.verifyRecoverSubscriptionByEmail(email, code);
     await chrome.storage.sync.set({
       billingEmail: email,
       subscriptionStatus: recovered.status || 'inactive',
@@ -240,8 +293,8 @@ async function handleRecoverSubscription() {
   } catch (error) {
     showStatus(`Recover failed: ${error.message}`, 'error');
   } finally {
-    recoverButton.textContent = 'Recover existing subscription';
-    recoverButton.disabled = false;
+    verifyButton.textContent = 'Verify and restore';
+    verifyButton.disabled = false;
   }
 }
 

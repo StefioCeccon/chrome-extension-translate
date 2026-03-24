@@ -74,18 +74,42 @@ class PaymentManager {
     }
   }
 
-  async recoverSubscriptionByEmail(email) {
+  async startRecoverSubscriptionByEmail(email) {
     if (!this.userId) {
       throw new Error('User ID not initialized');
     }
 
-    const response = await fetch(`${this.apiBaseUrl}/api/subscriptions/recover-by-email`, {
+    const response = await fetch(`${this.apiBaseUrl}/api/subscriptions/recover-start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Failed to send recovery code');
+    }
+
+    return data;
+  }
+
+  async verifyRecoverSubscriptionByEmail(email, code) {
+    if (!this.userId) {
+      throw new Error('User ID not initialized');
+    }
+
+    const response = await fetch(`${this.apiBaseUrl}/api/subscriptions/recover-verify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         email,
+        code,
         userId: this.userId
       })
     });
